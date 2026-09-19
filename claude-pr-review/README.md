@@ -124,7 +124,7 @@ unaffected, since a pull request in their repository cannot reach this action.
 | `claude_code_oauth_token` | yes | — | Generate with `claude setup-token`. |
 | `github_token` | no | `${{ github.token }}` | Posts the review; needs `pull-requests: write`. |
 | `allowed_tools` | no | see [`action.yml`](action.yml) | The **complete** `--allowedTools` list. Override only to add — removing `Skill`, `Task` or `Write` breaks the review in ways that still exit 0. |
-| `prompt_extra` | no | `''` | Extra review instructions, appended **after** the findings-file contract so it cannot dislodge it. |
+| `prompt_extra` | no | `''` | Extra review instructions. Inserted after the findings-file contract, but **before** the do-not-background block, which must stay last. |
 | `retention_days` | no | `14` | Log artifact retention. World-readable on a public repository. |
 | `claude_avatar` | no | github.com/claude's avatar | Used in the review heading and job summary. |
 

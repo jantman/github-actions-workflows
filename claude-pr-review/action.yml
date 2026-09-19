@@ -44,8 +44,10 @@ inputs:
     default: 'mcp__github_inline_comment__create_inline_comment,mcp__github_ci__get_ci_status,mcp__github_ci__get_workflow_run_details,mcp__github_ci__download_job_log,Read,Glob,Grep,Task,Skill,TodoWrite,Write,Bash'
   prompt_extra:
     description: >-
-      Extra instructions appended to the review prompt, for repo-specific review focus.
-      Appended AFTER the findings-file contract, so it cannot dislodge it.
+      Extra instructions for repo-specific review focus. Inserted AFTER the
+      findings-file contract so it cannot dislodge it, but BEFORE the
+      non-interactive/do-not-background block, which must stay last -- an agent that
+      ends its turn early is the one failure mode nothing downstream can recover from.
     required: false
     default: ''
   retention_days:
@@ -176,12 +178,37 @@ runs:
             fixes the issue entirely, and cited links in the full-SHA
             https://github.com/owner/repo/blob/<sha>/path#L4-L7 form.
 
-          This is a non-interactive CI run. Nothing will resume the session once
-          you produce a final message, so do not launch background or async agents
-          and do not schedule a wakeup -- run subagents synchronously and wait for
-          each result. The findings file must be written before you finish the turn.
-
           ${{ inputs.prompt_extra }}
+
+          >>> READ THIS LAST, AND OBEY IT. <<<
+
+          This is a NON-INTERACTIVE CI run. There is nobody to hand back to and
+          nothing will resume this session: the moment you produce a final message
+          the runner is torn down and any work still in flight is lost with it.
+
+          Therefore:
+
+          - Do NOT launch background or async agents and do NOT schedule a wakeup.
+            Run every subagent synchronously and block until it returns its result.
+          - NOTHING WILL NOTIFY YOU. There is no callback, no wakeup and no resume.
+            If you are waiting on a subagent, you must block on it inside this turn.
+          - Do NOT end your turn with a status update. Both of these are real final
+            messages from real runs of this command, and each one cost the review:
+
+                "Waiting for the PR summary agent to complete before proceeding to
+                 the parallel review step"
+
+                "Still waiting on the fourth review subagent (security/logic scan
+                 of the diff) -- it will notify automatically when done"
+
+            Nothing was waiting, and nothing notified anything. Each sentence ENDED
+            the run and the PR got no review. If you find yourself about to write
+            one, you have work left to do -- do the work instead of narrating it.
+          - Writing the findings file to the exact path above is the LAST thing you
+            do, on every path through the command, including the ones that say
+            "stop".
+
+          A turn that ends without that file is a failed run that still cost money.
         # Without these the log shows only "init" and "result" -- minutes of invisible
         # work and a bare permission_denials_count when it goes wrong. On a public
         # repository the job log and the artifact below are world-readable, so this is
