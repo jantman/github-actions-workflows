@@ -1,0 +1,56 @@
+name: Lint
+
+# The failure mode this exists to catch: an invalid workflow file does not fail loudly.
+# GitHub registers no triggers for it, so there is no run at all -- just a red
+# zero-second run against the *push*, with no jobs, no log, and the file path where the
+# workflow name should be. It never appears in `gh pr checks`, and it looks exactly like
+# a validation skip. `yaml.safe_load` does not catch it either: the file that did this
+# parsed fine, but used `runner.temp` in a job-level `env:`, where only the
+# github/needs/strategy/matrix/vars/secrets/inputs contexts are allowed.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run actionlint
+        # shellcheck is preinstalled on ubuntu-latest, so this also lints every `run:`
+        # block -- including the ones inside the composite actions, which actionlint
+        # picks up from action.yml.
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+
+      - name: Check the composite actions parse and keep their contract
+        run: |
+          python3 - <<'PY'
+          import sys, yaml, pathlib
+          fail = False
+          for d in ("claude-pr-review", "claude-mention"):
+              a = yaml.safe_load(pathlib.Path(d, "action.yml").read_text())
+              if a["runs"]["using"] != "composite":
+                  print(f"{d}: not a composite action"); fail = True
+              if "claude_code_oauth_token" not in a.get("inputs", {}):
+                  print(f"{d}: missing the claude_code_oauth_token input"); fail = True
+              # Every `run:` step must declare a shell, or the action will not load.
+              for s in a["runs"]["steps"]:
+                  if "run" in s and "shell" not in s:
+                      print(f"{d}: step {s.get('name')!r} has `run` with no `shell`"); fail = True
+              # The review action's allowlist must keep the three load-bearing tools.
+              if d == "claude-pr-review":
+                  tools = a["inputs"]["allowed_tools"]["default"]
+                  for t in ("Skill", "Task", "Write"):
+                      if t not in tools.split(","):
+                          print(f"{d}: `{t}` is missing from the default allowed_tools; "
+                                "the review will exit 0 having done nothing"); fail = True
+              print(f"{d}: ok")
+          sys.exit(1 if fail else 0)
+          PY
